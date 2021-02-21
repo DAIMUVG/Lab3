@@ -7,7 +7,7 @@
 ;Hardware:	Botones en el puerto B, LEDs en el puerto A y Display en el puerto C, D
 ;
 ;Creado:	15 feb, 2021
-;Ultima modificacion:  feb, 2021
+;Ultima modificacion:  20 feb, 2021
 
 #include <xc.inc>
 
@@ -43,81 +43,95 @@ ORG 100h	;posicion para el codigo
 ;-----------configuracion----------------------------
     
 main:				    ;Configuración de los puertos
-    banksel	ANSEL
-    clrf	ANSEL
+    banksel	ANSEL		    ;Llamo al banco de memoria donde estan los ANSEL
+    clrf	ANSEL		    ;Pines digitales
     clrf	ANSELH
     
-    banksel	TRISA
-    movlw	11010000B
+    banksel	TRISA		    ;Llamo al banco de memoria donde estan los TRISA y WPUB
+    movlw	11010000B	    ;Configuro los puertos de salida que usare y los demas los dejo como entradas para no afectar el conteo del led
     movwf	TRISA
     
-    movlw	10000000B
+    movlw	10000000B	    
     movwf	TRISC
     
     clrf	TRISD
+    movlw	11111111B		;Activo las resistencias de los puertos de B
+    movwf	WPUB
     
-    movlw	11111111B
+    movlw	11111011B		;Dejo todos como los puertos como botones, menos uno que sera la alarma
     movwf	TRISB
     
-    banksel	PORTD
-    clrf	PORTD
+    banksel	PORTD			;Llamo al banco de memoria donde estan los PORT
+    clrf	PORTD			;Limpio los puertos
     clrf	PORTA
     clrf	PORTC
+    clrf	PORTB
     
-    call	config_reloj
-    call	config_timr0
+    call	config_reloj		;Configuracion de reloj para darle un valor al oscilador
+    call	config_timr0		;Configutacion del timer0
 Loop:
+    btfsc	 PORTB, 0		;Reviso el pin RB0
+    call	 inc_7seg		;Rutina para incrementar el display
+    btfsc	 PORTB, 1		;Reviso el pin RB1
+    call	 dec_7seg		;Rutina para decrementar el display
     
-    call    inc_porta
+    movf	PORTD, w		;Muevo el valor del puerto D a W
+    call	TABLA_7S		;El valor en w se compara con la tabla y arroja una nueva configuracion
+    movwf	PORTC			;Saca w convertido para mostrar su valor en el display de forma hexadecimal
+    btfss	T0IF			;Verifica si el timer 0 esta desbordado
+    goto	Loop			;Regresa al loop desde el principio
+    call	inc_porta		;Rutina para incrementar el contador del puerto A
     
-    btfsc   PORTB, 0		;Reviso el pin RB0
-    call    inc_7seg
+    ;incf	PORTD, w		;Mueve el valor del puerto D a w
+    subwf	PORTA, w		;Resta el valor de w al puerto A
     
-    btfsc   PORTB, 1
-    call    dec_7seg
-    goto    Loop	        ;loop forever
-
+    btfsc	STATUS, 2		;Verifica si el resultado de la resta es 0
+    call	alarma			;Rutina para encender la alarma
+    
+    btfss	STATUS, 2		;Verifica si el resultado de la resta es diferente de 0
+    bcf		PORTB, 2		;Si el resultado no es 0, no se enciende la led
+    
+    goto	Loop	        ;loop forever
+alarma:
+    bsf		PORTB, 2		;Si el resultado de la resta es 0, enciende la LED
+    clrf	PORTA			;Limpia el puerto A, se reinicia
+    return
+    
 inc_porta:
-    btfss   T0IF 	
-    goto    $-1
-    call    timr0
-    incf    PORTA
+    btfss	T0IF		;Verifica si se ha desbordado el timer0	
+    goto	Loop		;regresa al loop
+    call	timr0		;Aqui configuro el valor del Timer
+    incf	PORTA		;Incremento el puerto A
     return
     
 inc_7seg:
     btfsc	PORTB, 0		;Antirebote del boton
-    goto	$-1	
-    incf	var
-    movf	var, w
-    call	TABLA_7S ;Incremento el puerto
-    movwf	PORTC
+    goto	$-1			
+    incf	PORTD			;Incremento el puerto D
     return
 
 dec_7seg:
-    btfsc	PORTB, 1
+    btfsc	PORTB, 1		;Antirebote del boton
     goto	$-1
-    decf	var
-    movf	var, w
-    call	TABLA_7S
-    movwf	PORTC
+    decf	PORTD			;decremento el puerto D
     return
     
 config_timr0:
-    banksel OPTION_REG   ;Banco de registros asociadas al puerto A
-    bcf	    T0CS    ; reloj interno clock selection
-    bcf	    PSA	    ;Prescaler 
+    banksel OPTION_REG	    ;Banco de registros asociadas al puerto A
+    bcf	    T0CS	    ; reloj interno clock selection
+    bcf	    PSA		    ;Prescaler 
     bsf	    PS2
     bsf	    PS1
-    bsf	    PS0	    ;PS = 111 Tiempo en ejecutar , 256
+    bsf	    PS0		   ;PS = 111 Tiempo en ejecutar , 256
     
     banksel TMR0
     call    timr0
     return
     
  timr0: 
-    movlw   134
-    movwf   TMR0
-    bcf	    T0IF
+    movlw   240		   ;valor en decimal del timer 0
+    movwf   TMR0	   ;Se le asigna el valor
+    bcf	    T0IF	   ;Se limpia
     return
     
  config_reloj:
